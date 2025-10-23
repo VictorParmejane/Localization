@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "775685179771",
+    "project_id": "cadeosamu",
+    "storage_bucket": "cadeosamu.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:775685179771:android:1fe6e2b0d37fc8896515de",
+        "android_client_info": {
+          "package_name": "com.example.localization"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCT2Aw1HnNAGPcLbcA0w9s0j_HaW09I5YI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
