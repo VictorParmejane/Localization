@@ -69,7 +69,7 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** 🔹 Atualiza a hora local na tela a cada segundo */
+    /** 🔹 Atualiza a hora local na tela */
     private void atualizarHora() {
         horaRunnable = new Runnable() {
             @Override
@@ -83,24 +83,26 @@ public class MainActivity extends AppCompatActivity {
         handler.post(horaRunnable);
     }
 
+    /** 🔹 Verifica permissões (corrigido para Android 12 +) */
     private void verificarPermissoesEIniciar() {
         String[] permissions = {
                 Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.FOREGROUND_SERVICE_LOCATION
+                Manifest.permission.ACCESS_COARSE_LOCATION
         };
 
-        boolean fine = ContextCompat.checkSelfPermission(this, permissions[0]) == PackageManager.PERMISSION_GRANTED;
-        boolean coarse = ContextCompat.checkSelfPermission(this, permissions[1]) == PackageManager.PERMISSION_GRANTED;
-        boolean fgService = ContextCompat.checkSelfPermission(this, permissions[2]) == PackageManager.PERMISSION_GRANTED;
+        boolean fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
+        boolean coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
 
-        if (!fine || !coarse || !fgService) {
+        if (!fine || !coarse) {
             ActivityCompat.requestPermissions(this, permissions, REQ_LOC_PERMISSIONS);
         } else {
             iniciarServico();
         }
     }
 
+    /** 🔹 Inicia o serviço de localização */
     private void iniciarServico() {
         String nome = edtNome.getText().toString().trim();
         if (nome.isEmpty()) {
@@ -117,16 +119,16 @@ public class MainActivity extends AppCompatActivity {
         setOnlineUI(nome);
     }
 
+    /** 🔹 Para o serviço e limpa o estado */
     private void pararServico() {
         Intent i = new Intent(this, LocationService.class);
         stopService(i);
-
         rastreando = false;
         salvarEstado(false, "");
         setOfflineUI();
     }
 
-    /** 🔹 Salva ou limpa estado do serviço para persistir entre aberturas */
+    /** 🔹 Persiste o estado atual */
     private void salvarEstado(boolean ativo, String nome) {
         SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         SharedPreferences.Editor ed = prefs.edit();
@@ -135,7 +137,7 @@ public class MainActivity extends AppCompatActivity {
         ed.apply();
     }
 
-    /** ---------------------- UI Helpers ---------------------- **/
+    /** ---------- UI Helpers ---------- */
     private void setOnlineUI(String nome) {
         btnToggle.setText("Parar Rastreamento");
         txtStatus.setText("Online (" + nome + ")");
@@ -152,6 +154,7 @@ public class MainActivity extends AppCompatActivity {
         imgStatus.setColorFilter(getColor(android.R.color.holo_red_dark));
     }
 
+    /** ---------- Permissões ---------- */
     @Override
     public void onRequestPermissionsResult(int requestCode,
                                            @NonNull String[] permissions,
@@ -163,7 +166,7 @@ public class MainActivity extends AppCompatActivity {
                 if (res != PackageManager.PERMISSION_GRANTED) granted = false;
             }
             if (granted) iniciarServico();
-            else Toast.makeText(this, "Permissões necessárias.", Toast.LENGTH_LONG).show();
+            else Toast.makeText(this, "Permissões necessárias para iniciar o rastreamento.", Toast.LENGTH_LONG).show();
         }
     }
 
