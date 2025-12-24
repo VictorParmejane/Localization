@@ -1,70 +1,144 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:gravity="center"
-    android:orientation="vertical"
-    android:padding="32dp"
-    tools:context=".MainActivity">
+    android:fillViewport="true">
 
-    <!-- Campo de nome -->
-    <EditText
-        android:id="@+id/edtNome"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Digite seu nome"
-        android:inputType="textPersonName"
-        android:padding="12dp"
-        android:textSize="18sp"
-        android:layout_marginBottom="24dp" />
-
-    <!-- Status (ícone + texto) -->
-    <LinearLayout
-        android:id="@+id/layoutStatus"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="24dp">
-
-        <ImageView
-            android:id="@+id/imgStatus"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:src="@android:drawable/presence_offline"
-            app:tint="@android:color/holo_red_dark" />
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="24dp"
+        tools:context=".MainActivity">
 
         <TextView
-            android:id="@+id/txtStatus"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Offline"
-            android:textColor="@android:color/holo_red_dark"
-            android:textSize="18sp"
-            android:layout_marginStart="8dp" />
+            android:text="Controle de Frota"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="20dp"/>
+
+        <!-- Dados do Motorista -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Dados do Motorista"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
+
+        <EditText
+            android:id="@+id/edtCpf"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="CPF (Apenas números)"
+            android:inputType="number"
+            android:maxLength="14"
+            android:layout_marginBottom="12dp" />
+
+        <EditText
+            android:id="@+id/edtNome"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Nome Completo"
+            android:inputType="textPersonName"
+            android:layout_marginBottom="12dp" />
+
+        <EditText
+            android:id="@+id/edtCelular"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Celular (Opcional)"
+            android:inputType="phone"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Dados da Viagem -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Dados do Veículo"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
+
+        <EditText
+            android:id="@+id/edtPlaca"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Placa do Veículo (Sem traço)"
+            android:inputType="textCapCharacters"
+            android:layout_marginBottom="12dp" />
+
+        <EditText
+            android:id="@+id/edtHodometro"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Hodômetro Inicial (Km)"
+            android:inputType="number"
+            android:layout_marginBottom="12dp" />
+
+        <EditText
+            android:id="@+id/edtDestino"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Destino / Rota"
+            android:inputType="text"
+            android:layout_marginBottom="12dp" />
+
+        <EditText
+            android:id="@+id/edtTipoServico"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Tipo de Serviço"
+            android:inputType="text"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Status -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <ImageView
+                android:id="@+id/imgStatus"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@android:drawable/presence_offline"
+                app:tint="@android:color/holo_red_dark" />
+
+            <TextView
+                android:id="@+id/txtStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Veículo Parado"
+                android:textColor="@android:color/holo_red_dark"
+                android:textSize="18sp"
+                android:layout_marginStart="8dp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/txtHora"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--:--:--"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="24dp" />
+
+        <Button
+            android:id="@+id/btnToggle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="INICIAR VIAGEM"
+            android:backgroundTint="@android:color/holo_green_dark"
+            android:textColor="@android:color/white"
+            android:textStyle="bold"
+            android:padding="16dp"
+            android:textSize="18sp" />
+
     </LinearLayout>
-
-    <!-- Hora atual -->
-    <TextView
-        android:id="@+id/txtHora"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="--:--:--"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="24dp" />
-
-    <!-- Botão principal -->
-    <Button
-        android:id="@+id/btnToggle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Iniciar Rastreamento"
-        android:backgroundTint="@android:color/holo_green_dark"
-        android:textColor="@android:color/white"
-        android:padding="14dp"
-        android:textSize="18sp" />
-
-</LinearLayout>
+</ScrollView>
