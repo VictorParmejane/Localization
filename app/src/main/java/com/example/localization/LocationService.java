@@ -11,12 +11,13 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Build;
-import android.os.Bundle;
+import android.os.Bundle; // <--- ADICIONADO PARA CORRIGIR O ERRO DO BUNDLE (caso precise)
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
 
+import androidx.annotation.NonNull; // Importante para o onLocationChanged
 import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
@@ -27,17 +28,16 @@ import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.GeoPoint;
 import com.google.firebase.firestore.SetOptions;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
 
 public class LocationService extends Service implements LocationListener {
 
-    private static final String CHANNEL_ID = "LOCATION_CHANNEL";
-    private static final int NOTIFICATION_ID = 200;
-    private static final long LOOP_INTERVAL = 5000L; // 5 segundos
+    private static final String CHANNEL_ID = "FROTA_TRACKER_CHANNEL";
+    private static final int NOTIFICATION_ID = 300;
+
+    // Intervalo de envio para o banco (10 segundos)
+    private static final long DB_UPDATE_INTERVAL = 10000L;
 
     private LocationManager locationManager;
     private FirebaseFirestore db;
@@ -45,9 +45,9 @@ public class LocationService extends Service implements LocationListener {
     private Runnable loopRunnable;
 
     private boolean isRodando = false;
-
-    private String name="", cpf="", celular="", placa="", hodometro_entrada="", destino="", tipo_servico="";
-    private String data_entrada="", horario_entrada="";
+    private String placa = "";
+    private String motorista = "";
+    private Location lastLocation = null;
 
     @Override
     public void onCreate() {
@@ -55,116 +55,100 @@ public class LocationService extends Service implements LocationListener {
         FirebaseApp.initializeApp(this);
         db = FirebaseFirestore.getInstance();
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-        isRodando = true;
         criarNotificacao();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
-            name = getSafeString(intent.getStringExtra("name"));
-            cpf = getSafeString(intent.getStringExtra("cpf"));
-            celular = getSafeString(intent.getStringExtra("celular"));
-            placa = getSafeString(intent.getStringExtra("placa"));
-            hodometro_entrada = getSafeString(intent.getStringExtra("hodometro_entrada"));
-            destino = getSafeString(intent.getStringExtra("destino"));
-            tipo_servico = getSafeString(intent.getStringExtra("tipo_servico"));
-            data_entrada = getSafeString(intent.getStringExtra("data_entrada"));
-            horario_entrada = getSafeString(intent.getStringExtra("horario_entrada"));
-
-            if(data_entrada.isEmpty()){
-                Date now = new Date();
-                data_entrada = new SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(now);
-                horario_entrada = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(now);
-            }
+            placa = intent.getStringExtra("placa");
+            motorista = intent.getStringExtra("motorista");
         }
 
-        // Garante que o registro existe no Firestore imediatamente
-        enviarParaFirestore(0, 0);
+        // Se a placa estiver vazia, tenta recuperar ou evita erro
+        if (placa == null) placa = "DESCONHECIDO";
 
+        isRodando = true;
         iniciarListenerGps();
-        iniciarLoop();
+        iniciarLoopEnvio();
+
+        atualizarNotificacao("Monitorando Placa: " + placa);
+
         return START_STICKY;
     }
-
-    private String getSafeString(String val) { return val == null ? "" : val; }
 
     private void criarNotificacao() {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel chan = new NotificationChannel(CHANNEL_ID, "Frota", NotificationManager.IMPORTANCE_LOW);
+            NotificationChannel chan = new NotificationChannel(CHANNEL_ID, "Serviço de Rastreamento", NotificationManager.IMPORTANCE_LOW);
             nm.createNotificationChannel(chan);
         }
-        Notification notif = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("Monitoramento Ativo")
-                .setContentText("Placa: " + placa)
+        startForeground(NOTIFICATION_ID, buildNotification("Aguardando GPS..."));
+    }
+
+    private void atualizarNotificacao(String texto) {
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        nm.notify(NOTIFICATION_ID, buildNotification(texto));
+    }
+
+    private Notification buildNotification(String text) {
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Rastreador de Frota")
+                .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                 .setOngoing(true)
                 .build();
-        startForeground(NOTIFICATION_ID, notif);
     }
 
     private void iniciarListenerGps() {
-        try {
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return;
-            // Solicita GPS (mais preciso)
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1f, this, Looper.getMainLooper());
-            // Solicita Rede (backup)
-            locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000, 5f, this, Looper.getMainLooper());
-        } catch (Exception e) { Log.e("LocationService", "Erro GPS: " + e.getMessage()); }
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return;
+
+        // Listener GPS
+        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000, 5f, this, Looper.getMainLooper());
+        // Listener Rede (Backup)
+        locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000, 10f, this, Looper.getMainLooper());
     }
 
     @Override
-    public void onLocationChanged(Location location) {
-        if (location != null) enviarParaFirestore(location.getLatitude(), location.getLongitude());
+    public void onLocationChanged(@NonNull Location location) {
+        // Guardamos a localização mais recente na memória
+        this.lastLocation = location;
+        Log.d("LocationService", "Nova coordenada recebida no listener");
     }
 
-    @Override public void onStatusChanged(String p, int s, Bundle e) {}
-    @Override public void onProviderEnabled(String p) {}
-    @Override public void onProviderDisabled(String p) {}
+    // --- CORREÇÃO AQUI ---
+    // Removi os métodos onStatusChanged, onProviderEnabled e onProviderDisabled.
+    // Nas versões novas do Android SDK, eles têm implementação padrão na interface,
+    // então você não precisa declará-los se estiverem vazios.
+    // Isso resolve o erro "Method does not override".
 
-    private void iniciarLoop() {
+    private void iniciarLoopEnvio() {
         handler = new Handler(Looper.getMainLooper());
         loopRunnable = new Runnable() {
             @Override
             public void run() {
-                if (isRodando) {
-                    try {
-                        if (ActivityCompat.checkSelfPermission(LocationService.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                            Location last = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
-                            if (last == null) last = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
-
-                            // Se tiver localização, atualiza. Se não tiver (lat 0, lon 0), atualiza também para manter heartbeat
-                            if (last != null) {
-                                enviarParaFirestore(last.getLatitude(), last.getLongitude());
-                            } else {
-                                enviarParaFirestore(0, 0);
-                            }
-                        }
-                    } catch (Exception e) { }
-                    handler.postDelayed(this, LOOP_INTERVAL);
+                if (isRodando && lastLocation != null && !placa.isEmpty()) {
+                    enviarParaFirestore(lastLocation);
                 }
+                handler.postDelayed(this, DB_UPDATE_INTERVAL);
             }
         };
         handler.post(loopRunnable);
     }
 
-    private void enviarParaFirestore(double lat, double lon) {
-        if (!isRodando || placa.isEmpty()) return;
-
+    private void enviarParaFirestore(Location loc) {
         try {
-            // ID Padronizado da Placa
             String docId = placa.toUpperCase().replace("-", "").trim();
-            GeoPoint geo = new GeoPoint(lat, lon);
+            GeoPoint geo = new GeoPoint(loc.getLatitude(), loc.getLongitude());
 
             Map<String, Object> dados = new HashMap<>();
-            dados.put("placa", placa);
-            dados.put("cpf", cpf);
-            dados.put("name", name);
             dados.put("location", geo);
+            dados.put("bearing", loc.getBearing());
+            dados.put("speed", loc.getSpeed() * 3.6);
+            dados.put("motorista_atual", motorista);
             dados.put("lastupdate", Timestamp.now());
+            dados.put("status", "online");
 
-            // Apenas atualiza esses campos, mantendo o resto (SetOptions.merge)
             db.collection("ambulances").document(docId).set(dados, SetOptions.merge());
 
         } catch (Exception e) { Log.e("Firestore", "Erro: " + e.getMessage()); }
@@ -173,12 +157,10 @@ public class LocationService extends Service implements LocationListener {
     @Override
     public void onDestroy() {
         isRodando = false;
-        super.onDestroy();
         if (locationManager != null) locationManager.removeUpdates(this);
         if (handler != null) handler.removeCallbacks(loopRunnable);
         stopForeground(true);
-        // NOTA: O serviço não apaga o documento do Firestore.
-        // Quem apaga é a MainActivity no método processarFimViagem().
+        super.onDestroy();
     }
 
     @Nullable
