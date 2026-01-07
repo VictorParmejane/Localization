@@ -5,9 +5,9 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
-import android.content.Context; // Importante
+import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences; // Importante
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.location.Location;
@@ -33,7 +33,7 @@ import org.json.JSONObject;
 
 public class LocationService extends Service implements LocationListener {
 
-    // 🔴 CONFIRA SEU IP
+    // 🔴 CONFIRA SEU IP DO NGROK OU REDE LOCAL AQUI
     private static final String BASE_URL = "https://vorant-unindulgently-miracle.ngrok-free.dev";
 
     private static final String CHANNEL_ID = "frota_channel_01";
@@ -52,7 +52,6 @@ public class LocationService extends Service implements LocationListener {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // 1. Tenta pegar do Intent (Quando vem da Activity)
         if (intent != null && intent.hasExtra("placa")) {
             String p = intent.getStringExtra("placa");
             if (p != null && !p.isEmpty()) {
@@ -60,22 +59,17 @@ public class LocationService extends Service implements LocationListener {
             }
         }
 
-        // 2. RECUPERAÇÃO DE MEMÓRIA (Salva-vidas para o "Run")
-        // Se a placa estiver inválida, tenta ler do disco
         if (placa == null || placa.equals("INICIANDO...") || placa.isEmpty()) {
             SharedPreferences prefs = getSharedPreferences("DadosViagem", Context.MODE_PRIVATE);
             String placaSalva = prefs.getString("placa_ativa", "");
-
             if (!placaSalva.isEmpty()) {
                 placa = placaSalva;
-                Log.d("LocationService", "Placa recuperada da memória: " + placa);
             }
         }
 
         startForegroundServiceCompat();
         iniciarListenerGps();
 
-        // Só envia status se tiver placa válida
         if (!placa.equals("INICIANDO...")) {
             enviarStatus("online");
         }
@@ -104,8 +98,12 @@ public class LocationService extends Service implements LocationListener {
             return;
         }
         try {
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000, 2f, this);
-            locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000, 5f, this);
+            // ALTA PRECISÃO: Atualiza a cada 1000ms (1 segundo) ou 1 metro de distância
+            // Isso cria mais pontos para o filtro do servidor trabalhar melhor
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1f, this);
+
+            // BACKUP: Se GPS falhar, usa rede (menos preciso, tempo maior)
+            locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000, 10f, this);
         } catch (Exception e) {
             Log.e("GPS", "Erro: " + e.getMessage());
         }
@@ -113,8 +111,15 @@ public class LocationService extends Service implements LocationListener {
 
     @Override
     public void onLocationChanged(@NonNull Location loc) {
-        // Se a placa ainda não foi carregada, não envia nada para evitar Erro 500
         if (placa.equals("INICIANDO...")) return;
+
+        // --- FILTRO DE PRECISÃO ---
+        // Se a margem de erro for maior que 30 metros, descarta o ponto.
+        // Isso evita "pontos malucos" que sujam o KM.
+        if (loc.hasAccuracy() && loc.getAccuracy() > 30) {
+            Log.d("GPS_FILTER", "Ignorado: Precisão ruim (" + loc.getAccuracy() + "m)");
+            return;
+        }
 
         String url = BASE_URL + "/api/localizacao";
         JSONObject json = new JSONObject();
@@ -122,17 +127,16 @@ public class LocationService extends Service implements LocationListener {
             json.put("placa", placa);
             json.put("latitude", loc.getLatitude());
             json.put("longitude", loc.getLongitude());
-            json.put("velocidade", loc.getSpeed() * 3.6);
+
+            // Filtro de velocidade muito baixa para evitar ruído quando parado
+            double vel = loc.getSpeed() * 3.6;
+            if (vel < 1.0) vel = 0;
+            json.put("velocidade", vel);
+
         } catch (Exception e) {}
 
         JsonObjectRequest req = new JsonObjectRequest(Request.Method.POST, url, json, null,
-                error -> {
-                    if (error.networkResponse != null) {
-                        Log.e("Volley", "Erro Servidor: " + error.networkResponse.statusCode);
-                    } else {
-                        Log.e("Volley", "Erro Rede: " + error.getMessage());
-                    }
-                });
+                error -> Log.e("Volley", "Erro envio: " + error.toString()));
 
         req.setRetryPolicy(new DefaultRetryPolicy(5000, 2, 1.5f));
         requestQueue.add(req);

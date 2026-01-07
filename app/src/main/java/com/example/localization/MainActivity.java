@@ -46,7 +46,7 @@ public class MainActivity extends AppCompatActivity {
 
     // 🔴 CONFIRA SEU IP NOVAMENTE (Deve ser o do computador rodando o Node.js)
     private static final String SERVER_BASE = "https://vorant-unindulgently-miracle.ngrok-free.dev";
-    private static final String FORM_URL = SERVER_BASE + "/mobile";
+    private static final String FORM_URL = SERVER_BASE + "/mobile?modo=app";
 
     private LinearLayout layoutFormulario, layoutRastreamento;
     private WebView webView;
@@ -240,14 +240,19 @@ public class MainActivity extends AppCompatActivity {
                 },
                 error -> {
                     String msgErro = "Erro desconhecido";
-                    if (error.networkResponse != null) {
-                        msgErro = "Status: " + error.networkResponse.statusCode;
-                    }
+                    try {
+                        if (error.networkResponse != null && error.networkResponse.data != null) {
+                            // Pega a mensagem de erro que mandamos do servidor (JSON)
+                            String jsonErro = new String(error.networkResponse.data, "UTF-8");
+                            JSONObject obj = new JSONObject(jsonErro);
+                            msgErro = obj.getString("error");
+                        }
+                    } catch (Exception e) {}
 
                     new AlertDialog.Builder(this)
-                            .setTitle("Erro no Servidor")
-                            .setMessage("O servidor recusou os dados.\nErro: " + msgErro + "\nVerifique se o servidor Node.js está rodando e se a placa '" + placaAtual + "' existe no banco.")
-                            .setPositiveButton("OK", null)
+                            .setTitle("Erro ao Finalizar")
+                            .setMessage(msgErro) // Vai mostrar: "KM inválido!..."
+                            .setPositiveButton("Corrigir", null)
                             .show();
                 }
         );
