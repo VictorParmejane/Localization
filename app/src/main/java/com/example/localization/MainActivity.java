@@ -5,171 +5,282 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.text.InputType;
+import android.util.Log;
+import android.view.View;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.Volley;
+
+import org.json.JSONObject;
+
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
-    private EditText edtNome;
+    // 🔴 CONFIRA SEU IP NOVAMENTE (Deve ser o do computador rodando o Node.js)
+    private static final String SERVER_BASE = "https://vorant-unindulgently-miracle.ngrok-free.dev";
+    private static final String FORM_URL = SERVER_BASE + "/mobile";
+
+    private LinearLayout layoutFormulario, layoutRastreamento;
+    private WebView webView;
     private Button btnToggle;
     private TextView txtHora, txtStatus;
-    private ImageView imgStatus;
 
-    private boolean rastreando = false;
+    private boolean operacaoAtiva = false;
+    private String placaAtual = "";
     private Handler handler = new Handler();
-    private Runnable horaRunnable;
-
-    private static final int REQ_LOC_PERMISSIONS = 101;
-    private static final String PREFS = "localization_prefs";
+    private SharedPreferences prefs;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        edtNome = findViewById(R.id.edtNome);
+        // Inicializa memória interna
+        prefs = getSharedPreferences("DadosViagem", Context.MODE_PRIVATE);
+
+        layoutFormulario = findViewById(R.id.layoutFormulario);
+        layoutRastreamento = findViewById(R.id.layoutRastreamento);
+        webView = findViewById(R.id.webview);
         btnToggle = findViewById(R.id.btnToggle);
         txtHora = findViewById(R.id.txtHora);
         txtStatus = findViewById(R.id.txtStatus);
-        imgStatus = findViewById(R.id.imgStatus);
 
-        atualizarHora();
+        configurarWebView();
+        iniciarRelogio();
 
-        // 🔹 Restaura estado salvo
-        SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        rastreando = prefs.getBoolean("tracking_active", false);
-        if (rastreando) {
-            String nomeSalvo = prefs.getString("user_name", "");
-            edtNome.setText(nomeSalvo);
-            setOnlineUI(nomeSalvo);
-        } else {
-            setOfflineUI();
-        }
+        // Verifica se já existe uma viagem em andamento salva na memória
+        recuperarEstadoViagem();
 
-        btnToggle.setOnClickListener(v -> {
-            if (rastreando) {
-                pararServico();
-            } else {
-                verificarPermissoesEIniciar();
+        btnToggle.setOnClickListener(v -> abrirDialogoEncerramento());
+
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (operacaoAtiva) {
+                    Toast.makeText(MainActivity.this, "Finalize a operação primeiro.", Toast.LENGTH_SHORT).show();
+                } else if (webView.canGoBack()) {
+                    webView.goBack();
+                } else {
+                    moveTaskToBack(true);
+                }
             }
         });
     }
 
-    /** 🔹 Atualiza a hora local na tela a cada segundo */
-    private void atualizarHora() {
-        horaRunnable = new Runnable() {
+    // --- SALVAMENTO DE ESTADO (Para não perder a placa) ---
+    private void salvarEstadoViagem(String placa) {
+        prefs.edit()
+                .putString("placa_ativa", placa)
+                .putBoolean("em_viagem", true)
+                .apply();
+        this.placaAtual = placa;
+        this.operacaoAtiva = true;
+    }
+
+    private void limparEstadoViagem() {
+        prefs.edit().clear().apply();
+        this.placaAtual = "";
+        this.operacaoAtiva = false;
+    }
+
+    private void recuperarEstadoViagem() {
+        boolean emViagem = prefs.getBoolean("em_viagem", false);
+        String placaSalva = prefs.getString("placa_ativa", "");
+
+        if (emViagem && !placaSalva.isEmpty()) {
+            this.placaAtual = placaSalva;
+            this.operacaoAtiva = true;
+            alternarTelaParaRastreamento();
+            // Reinicia o serviço para garantir
+            Intent intent = new Intent(this, LocationService.class);
+            intent.putExtra("placa", placaAtual);
+            ContextCompat.startForegroundService(this, intent);
+        }
+    }
+    // --------------------------------------------------------
+
+    private void configurarWebView() {
+        WebSettings ws = webView.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+
+        webView.setWebViewClient(new WebViewClient() {
             @Override
-            public void run() {
-                String horaAtual = new SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                        .format(new Date());
-                txtHora.setText(horaAtual);
-                handler.postDelayed(this, 1000);
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                if (url.contains("/mobile-success")) {
+                    String p = Uri.parse(url).getQueryParameter("placa");
+                    if (p != null && !p.isEmpty()) {
+                        placaAtual = p;
+                        verificarPermissoes(); // Inicia fluxo
+                    }
+                    return true;
+                }
+                return false;
             }
-        };
-        handler.post(horaRunnable);
+        });
+        webView.loadUrl(FORM_URL);
     }
 
-    private void verificarPermissoesEIniciar() {
-        String[] permissions = {
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.FOREGROUND_SERVICE_LOCATION
-        };
+    private void verificarPermissoes() {
+        List<String> perms = new ArrayList<>();
+        perms.add(Manifest.permission.ACCESS_FINE_LOCATION);
 
-        boolean fine = ContextCompat.checkSelfPermission(this, permissions[0]) == PackageManager.PERMISSION_GRANTED;
-        boolean coarse = ContextCompat.checkSelfPermission(this, permissions[1]) == PackageManager.PERMISSION_GRANTED;
-        boolean fgService = ContextCompat.checkSelfPermission(this, permissions[2]) == PackageManager.PERMISSION_GRANTED;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            perms.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
 
-        if (!fine || !coarse || !fgService) {
-            ActivityCompat.requestPermissions(this, permissions, REQ_LOC_PERMISSIONS);
+        boolean todasOk = true;
+        for (String p : perms) {
+            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
+                todasOk = false;
+                break;
+            }
+        }
+
+        if (todasOk) {
+            iniciarOperacaoGPS();
         } else {
-            iniciarServico();
+            ActivityCompat.requestPermissions(this, perms.toArray(new String[0]), 101);
         }
     }
 
-    private void iniciarServico() {
-        String nome = edtNome.getText().toString().trim();
-        if (nome.isEmpty()) {
-            Toast.makeText(this, "Digite seu nome antes de iniciar.", Toast.LENGTH_SHORT).show();
-            return;
-        }
+    private void iniciarOperacaoGPS() {
+        // Salva na memória para não perder se o app fechar
+        salvarEstadoViagem(placaAtual);
 
         Intent intent = new Intent(this, LocationService.class);
-        intent.putExtra("user_name", nome);
+        intent.putExtra("placa", placaAtual);
         ContextCompat.startForegroundService(this, intent);
 
-        rastreando = true;
-        salvarEstado(true, nome);
-        setOnlineUI(nome);
+        alternarTelaParaRastreamento();
     }
 
-    private void pararServico() {
-        Intent i = new Intent(this, LocationService.class);
-        stopService(i);
-
-        rastreando = false;
-        salvarEstado(false, "");
-        setOfflineUI();
+    private void alternarTelaParaRastreamento() {
+        layoutFormulario.setVisibility(View.GONE);
+        layoutRastreamento.setVisibility(View.VISIBLE);
+        txtStatus.setText("Viagem em Curso: " + placaAtual);
     }
 
-    /** 🔹 Salva ou limpa estado do serviço para persistir entre aberturas */
-    private void salvarEstado(boolean ativo, String nome) {
-        SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        SharedPreferences.Editor ed = prefs.edit();
-        ed.putBoolean("tracking_active", ativo);
-        ed.putString("user_name", nome);
-        ed.apply();
-    }
+    private void abrirDialogoEncerramento() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Finalizar Viagem");
+        builder.setMessage("Veículo: " + placaAtual + "\nInforme o KM de Chegada:");
 
-    /** ---------------------- UI Helpers ---------------------- **/
-    private void setOnlineUI(String nome) {
-        btnToggle.setText("Parar Rastreamento");
-        txtStatus.setText("Online (" + nome + ")");
-        txtStatus.setTextColor(getColor(android.R.color.holo_green_dark));
-        imgStatus.setImageResource(android.R.drawable.presence_online);
-        imgStatus.setColorFilter(getColor(android.R.color.holo_green_dark));
-    }
+        final EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        builder.setView(input);
 
-    private void setOfflineUI() {
-        btnToggle.setText("Iniciar Rastreamento");
-        txtStatus.setText("Offline");
-        txtStatus.setTextColor(getColor(android.R.color.holo_red_dark));
-        imgStatus.setImageResource(android.R.drawable.presence_busy);
-        imgStatus.setColorFilter(getColor(android.R.color.holo_red_dark));
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode,
-                                           @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQ_LOC_PERMISSIONS) {
-            boolean granted = true;
-            for (int res : grantResults) {
-                if (res != PackageManager.PERMISSION_GRANTED) granted = false;
+        builder.setPositiveButton("FINALIZAR", (dialog, which) -> {
+            String kmTexto = input.getText().toString();
+            if (!kmTexto.isEmpty()) {
+                try {
+                    int km = Integer.parseInt(kmTexto);
+                    enviarDadosFinais(String.valueOf(km));
+                } catch (NumberFormatException e) {
+                    Toast.makeText(this, "Número inválido!", Toast.LENGTH_SHORT).show();
+                }
+            } else {
+                Toast.makeText(this, "KM obrigatório!", Toast.LENGTH_SHORT).show();
             }
-            if (granted) iniciarServico();
-            else Toast.makeText(this, "Permissões necessárias.", Toast.LENGTH_LONG).show();
-        }
+        });
+
+        builder.setNegativeButton("Cancelar", (dialog, which) -> dialog.cancel());
+        builder.show();
+    }
+
+    private void enviarDadosFinais(String kmChegada) {
+        String url = SERVER_BASE + "/api/finalizar-viagem";
+        JSONObject json = new JSONObject();
+        try {
+            // Usa a placa salva na memória se a variável local estiver vazia
+            if (placaAtual.isEmpty()) {
+                placaAtual = prefs.getString("placa_ativa", "");
+            }
+
+            json.put("placa", placaAtual);
+            json.put("hodometro_chegada", Integer.parseInt(kmChegada));
+        } catch (Exception e) {}
+
+        Log.d("DEBUG_APP", "Enviando JSON: " + json.toString());
+
+        RequestQueue queue = Volley.newRequestQueue(this);
+        JsonObjectRequest req = new JsonObjectRequest(Request.Method.POST, url, json,
+                response -> {
+                    Toast.makeText(this, "Viagem encerrada com sucesso!", Toast.LENGTH_LONG).show();
+                    resetarApp();
+                },
+                error -> {
+                    String msgErro = "Erro desconhecido";
+                    if (error.networkResponse != null) {
+                        msgErro = "Status: " + error.networkResponse.statusCode;
+                    }
+
+                    new AlertDialog.Builder(this)
+                            .setTitle("Erro no Servidor")
+                            .setMessage("O servidor recusou os dados.\nErro: " + msgErro + "\nVerifique se o servidor Node.js está rodando e se a placa '" + placaAtual + "' existe no banco.")
+                            .setPositiveButton("OK", null)
+                            .show();
+                }
+        );
+        queue.add(req);
+    }
+
+    private void resetarApp() {
+        stopService(new Intent(this, LocationService.class));
+
+        limparEstadoViagem(); // Limpa memória
+
+        layoutRastreamento.setVisibility(View.GONE);
+        layoutFormulario.setVisibility(View.VISIBLE);
+        webView.reload();
+    }
+
+    private void iniciarRelogio() {
+        handler.post(new Runnable() {
+            @Override public void run() {
+                txtHora.setText(new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date()));
+                handler.postDelayed(this, 1000);
+            }
+        });
     }
 
     @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        handler.removeCallbacks(horaRunnable);
+    public void onRequestPermissionsResult(int r, @NonNull String[] p, @NonNull int[] g) {
+        super.onRequestPermissionsResult(r, p, g);
+        if (r == 101 && g.length > 0 && g[0] == PackageManager.PERMISSION_GRANTED) {
+            iniciarOperacaoGPS();
+        } else {
+            Toast.makeText(this, "Precisamos das permissões para rastrear.", Toast.LENGTH_LONG).show();
+            webView.reload();
+        }
     }
 }

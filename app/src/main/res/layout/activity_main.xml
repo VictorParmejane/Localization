@@ -4,67 +4,78 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:gravity="center"
     android:orientation="vertical"
-    android:padding="32dp"
     tools:context=".MainActivity">
 
-    <!-- Campo de nome -->
-    <EditText
-        android:id="@+id/edtNome"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Digite seu nome"
-        android:inputType="textPersonName"
-        android:padding="12dp"
-        android:textSize="18sp"
-        android:layout_marginBottom="24dp" />
-
-    <!-- Status (ícone + texto) -->
+    <!-- TELA 1: FORMULÁRIO (WebView) -->
     <LinearLayout
-        android:id="@+id/layoutStatus"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="24dp">
+        android:id="@+id/layoutFormulario"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:visibility="visible">
 
-        <ImageView
-            android:id="@+id/imgStatus"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:src="@android:drawable/presence_offline"
-            app:tint="@android:color/holo_red_dark" />
+        <WebView
+            android:id="@+id/webview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
 
-        <TextView
-            android:id="@+id/txtStatus"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Offline"
-            android:textColor="@android:color/holo_red_dark"
-            android:textSize="18sp"
-            android:layout_marginStart="8dp" />
+        <!-- O BOTÃO SUMIU DAQUI! -->
     </LinearLayout>
 
-    <!-- Hora atual -->
-    <TextView
-        android:id="@+id/txtHora"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="--:--:--"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="24dp" />
-
-    <!-- Botão principal -->
-    <Button
-        android:id="@+id/btnToggle"
+    <!-- TELA 2: PAINEL DE OPERAÇÃO (Só aparece via código) -->
+    <LinearLayout
+        android:id="@+id/layoutRastreamento"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Iniciar Rastreamento"
-        android:backgroundTint="@android:color/holo_green_dark"
-        android:textColor="@android:color/white"
-        android:padding="14dp"
-        android:textSize="18sp" />
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="32dp"
+        android:visibility="gone">
 
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="24dp">
+
+            <ImageView
+                android:id="@+id/imgStatus"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/presence_online"
+                app:tint="@android:color/holo_green_dark" />
+
+            <TextView
+                android:id="@+id/txtStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Operação Ativa"
+                android:textColor="@android:color/holo_green_dark"
+                android:textSize="20sp"
+                android:layout_marginStart="12dp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/txtHora"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--:--:--"
+            android:textSize="48sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="48dp" />
+
+        <Button
+            android:id="@+id/btnToggle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="FINALIZAR OPERAÇÃO"
+            android:backgroundTint="@android:color/holo_red_dark"
+            android:textColor="@android:color/white"
+            android:padding="20dp"
+            android:textSize="20sp"
+            android:textStyle="bold"/>
+
+    </LinearLayout>
 </LinearLayout>
