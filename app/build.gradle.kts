@@ -35,6 +35,7 @@ android {
 }
 
 dependencies {
+    implementation("com.google.android.gms:play-services-location:21.1.0")
     implementation("com.android.volley:volley:1.2.1")
     implementation(platform("com.google.firebase:firebase-bom:34.4.0"))
     implementation("com.google.firebase:firebase-firestore")

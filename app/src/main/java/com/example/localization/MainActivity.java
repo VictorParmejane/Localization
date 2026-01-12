@@ -44,7 +44,7 @@ import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
-    // 🔴 CONFIRA SEU IP NOVAMENTE (Deve ser o do computador rodando o Node.js)
+    // 🔴 ATENÇÃO: VERIFIQUE SEU LINK DO NGROK
     private static final String SERVER_BASE = "https://vorant-unindulgently-miracle.ngrok-free.dev";
     private static final String FORM_URL = SERVER_BASE + "/mobile?modo=app";
 
@@ -63,7 +63,6 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // Inicializa memória interna
         prefs = getSharedPreferences("DadosViagem", Context.MODE_PRIVATE);
 
         layoutFormulario = findViewById(R.id.layoutFormulario);
@@ -75,8 +74,6 @@ public class MainActivity extends AppCompatActivity {
 
         configurarWebView();
         iniciarRelogio();
-
-        // Verifica se já existe uma viagem em andamento salva na memória
         recuperarEstadoViagem();
 
         btnToggle.setOnClickListener(v -> abrirDialogoEncerramento());
@@ -85,7 +82,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void handleOnBackPressed() {
                 if (operacaoAtiva) {
-                    Toast.makeText(MainActivity.this, "Finalize a operação primeiro.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, "Finalize a viagem primeiro.", Toast.LENGTH_SHORT).show();
                 } else if (webView.canGoBack()) {
                     webView.goBack();
                 } else {
@@ -95,12 +92,8 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // --- SALVAMENTO DE ESTADO (Para não perder a placa) ---
     private void salvarEstadoViagem(String placa) {
-        prefs.edit()
-                .putString("placa_ativa", placa)
-                .putBoolean("em_viagem", true)
-                .apply();
+        prefs.edit().putString("placa_ativa", placa).putBoolean("em_viagem", true).apply();
         this.placaAtual = placa;
         this.operacaoAtiva = true;
     }
@@ -119,19 +112,16 @@ public class MainActivity extends AppCompatActivity {
             this.placaAtual = placaSalva;
             this.operacaoAtiva = true;
             alternarTelaParaRastreamento();
-            // Reinicia o serviço para garantir
             Intent intent = new Intent(this, LocationService.class);
             intent.putExtra("placa", placaAtual);
             ContextCompat.startForegroundService(this, intent);
         }
     }
-    // --------------------------------------------------------
 
     private void configurarWebView() {
         WebSettings ws = webView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
-
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -140,7 +130,7 @@ public class MainActivity extends AppCompatActivity {
                     String p = Uri.parse(url).getQueryParameter("placa");
                     if (p != null && !p.isEmpty()) {
                         placaAtual = p;
-                        verificarPermissoes(); // Inicia fluxo
+                        verificarPermissoes();
                     }
                     return true;
                 }
@@ -153,67 +143,45 @@ public class MainActivity extends AppCompatActivity {
     private void verificarPermissoes() {
         List<String> perms = new ArrayList<>();
         perms.add(Manifest.permission.ACCESS_FINE_LOCATION);
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             perms.add(Manifest.permission.POST_NOTIFICATIONS);
         }
-
         boolean todasOk = true;
         for (String p : perms) {
             if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
-                todasOk = false;
-                break;
+                todasOk = false; break;
             }
         }
-
-        if (todasOk) {
-            iniciarOperacaoGPS();
-        } else {
-            ActivityCompat.requestPermissions(this, perms.toArray(new String[0]), 101);
-        }
+        if (todasOk) iniciarOperacaoGPS();
+        else ActivityCompat.requestPermissions(this, perms.toArray(new String[0]), 101);
     }
 
     private void iniciarOperacaoGPS() {
-        // Salva na memória para não perder se o app fechar
         salvarEstadoViagem(placaAtual);
-
         Intent intent = new Intent(this, LocationService.class);
         intent.putExtra("placa", placaAtual);
         ContextCompat.startForegroundService(this, intent);
-
         alternarTelaParaRastreamento();
     }
 
     private void alternarTelaParaRastreamento() {
         layoutFormulario.setVisibility(View.GONE);
         layoutRastreamento.setVisibility(View.VISIBLE);
-        txtStatus.setText("Viagem em Curso: " + placaAtual);
+        txtStatus.setText("Viagem: " + placaAtual);
     }
 
     private void abrirDialogoEncerramento() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Finalizar Viagem");
-        builder.setMessage("Veículo: " + placaAtual + "\nInforme o KM de Chegada:");
-
+        builder.setTitle("Chegada - " + placaAtual);
+        builder.setMessage("Digite o KM do painel:");
         final EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         builder.setView(input);
-
         builder.setPositiveButton("FINALIZAR", (dialog, which) -> {
-            String kmTexto = input.getText().toString();
-            if (!kmTexto.isEmpty()) {
-                try {
-                    int km = Integer.parseInt(kmTexto);
-                    enviarDadosFinais(String.valueOf(km));
-                } catch (NumberFormatException e) {
-                    Toast.makeText(this, "Número inválido!", Toast.LENGTH_SHORT).show();
-                }
-            } else {
-                Toast.makeText(this, "KM obrigatório!", Toast.LENGTH_SHORT).show();
-            }
+            String km = input.getText().toString();
+            if (!km.isEmpty()) enviarDadosFinais(km);
         });
-
-        builder.setNegativeButton("Cancelar", (dialog, which) -> dialog.cancel());
+        builder.setNegativeButton("Cancelar", null);
         builder.show();
     }
 
@@ -221,39 +189,23 @@ public class MainActivity extends AppCompatActivity {
         String url = SERVER_BASE + "/api/finalizar-viagem";
         JSONObject json = new JSONObject();
         try {
-            // Usa a placa salva na memória se a variável local estiver vazia
-            if (placaAtual.isEmpty()) {
-                placaAtual = prefs.getString("placa_ativa", "");
-            }
-
+            if (placaAtual.isEmpty()) placaAtual = prefs.getString("placa_ativa", "");
             json.put("placa", placaAtual);
             json.put("hodometro_chegada", Integer.parseInt(kmChegada));
         } catch (Exception e) {}
 
-        Log.d("DEBUG_APP", "Enviando JSON: " + json.toString());
-
         RequestQueue queue = Volley.newRequestQueue(this);
         JsonObjectRequest req = new JsonObjectRequest(Request.Method.POST, url, json,
                 response -> {
-                    Toast.makeText(this, "Viagem encerrada com sucesso!", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Viagem Finalizada!", Toast.LENGTH_LONG).show();
                     resetarApp();
                 },
                 error -> {
-                    String msgErro = "Erro desconhecido";
+                    String msg = "Erro ao finalizar.";
                     try {
-                        if (error.networkResponse != null && error.networkResponse.data != null) {
-                            // Pega a mensagem de erro que mandamos do servidor (JSON)
-                            String jsonErro = new String(error.networkResponse.data, "UTF-8");
-                            JSONObject obj = new JSONObject(jsonErro);
-                            msgErro = obj.getString("error");
-                        }
-                    } catch (Exception e) {}
-
-                    new AlertDialog.Builder(this)
-                            .setTitle("Erro ao Finalizar")
-                            .setMessage(msgErro) // Vai mostrar: "KM inválido!..."
-                            .setPositiveButton("Corrigir", null)
-                            .show();
+                        if(error.networkResponse != null) msg = new String(error.networkResponse.data, "UTF-8");
+                    } catch(Exception e){}
+                    Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
                 }
         );
         queue.add(req);
@@ -261,9 +213,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void resetarApp() {
         stopService(new Intent(this, LocationService.class));
-
-        limparEstadoViagem(); // Limpa memória
-
+        limparEstadoViagem();
         layoutRastreamento.setVisibility(View.GONE);
         layoutFormulario.setVisibility(View.VISIBLE);
         webView.reload();
@@ -281,11 +231,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onRequestPermissionsResult(int r, @NonNull String[] p, @NonNull int[] g) {
         super.onRequestPermissionsResult(r, p, g);
-        if (r == 101 && g.length > 0 && g[0] == PackageManager.PERMISSION_GRANTED) {
-            iniciarOperacaoGPS();
-        } else {
-            Toast.makeText(this, "Precisamos das permissões para rastrear.", Toast.LENGTH_LONG).show();
-            webView.reload();
-        }
+        if (r == 101 && g.length > 0 && g[0] == PackageManager.PERMISSION_GRANTED) iniciarOperacaoGPS();
     }
 }
