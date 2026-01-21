@@ -34,7 +34,7 @@ import org.json.JSONObject;
 
 public class LocationService extends Service implements LocationListener {
 
-    private static final String BASE_URL = "https://vorant-unindulgently-miracle.ngrok-free.dev";
+    private static final String BASE_URL = "https://frotasapp.rondonopolis.mt.gov.br";
     private static final String CHANNEL_ID = "frota_pro_channel";
     private static final int NOTIFICATION_ID = 888;
 

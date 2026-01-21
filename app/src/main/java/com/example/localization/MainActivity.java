@@ -45,7 +45,7 @@ import java.util.Locale;
 public class MainActivity extends AppCompatActivity {
 
     // 🔴 ATENÇÃO: VERIFIQUE SEU LINK DO NGROK
-    private static final String SERVER_BASE = "https://vorant-unindulgently-miracle.ngrok-free.dev";
+    private static final String SERVER_BASE = "https://frotasapp.rondonopolis.mt.gov.br";
     private static final String FORM_URL = SERVER_BASE + "/mobile?modo=app";
 
     private LinearLayout layoutFormulario, layoutRastreamento;
@@ -190,9 +190,19 @@ public class MainActivity extends AppCompatActivity {
         JSONObject json = new JSONObject();
         try {
             if (placaAtual.isEmpty()) placaAtual = prefs.getString("placa_ativa", "");
-            json.put("placa", placaAtual);
+
+            // LIMPEZA TOTAL: Remove tudo que não for letra ou número e põe em maiúsculo
+            String placaLimpa = placaAtual.toUpperCase().trim();
+
+            json.put("placa", placaLimpa);
             json.put("hodometro_chegada", Integer.parseInt(kmChegada));
-        } catch (Exception e) {}
+
+            Log.d("DEBUG_FINALIZAR", "Enviando placa limpa: " + placaLimpa);
+        } catch (Exception e) {
+            Log.e("ERRO", "Erro no JSON: " + e.getMessage());
+        }
+
+        // ... resto do código do Volley
 
         RequestQueue queue = Volley.newRequestQueue(this);
         JsonObjectRequest req = new JsonObjectRequest(Request.Method.POST, url, json,
