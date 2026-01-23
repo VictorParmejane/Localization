@@ -122,6 +122,12 @@ public class MainActivity extends AppCompatActivity {
         WebSettings ws = webView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
+
+        // --- LIMPEZA DE CACHE PARA GARANTIR REGRAS NOVAS ---
+        ws.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        webView.clearCache(true);
+        // ---------------------------------------------------
+
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -137,6 +143,8 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             }
         });
+
+        // Garante que o modo=app está sendo passado
         webView.loadUrl(FORM_URL);
     }
 
