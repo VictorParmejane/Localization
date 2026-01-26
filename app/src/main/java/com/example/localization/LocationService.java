@@ -41,9 +41,10 @@ import java.util.List;
 
 public class LocationService extends Service {
 
+    // 🔴 CONFIRA SE O ENDEREÇO ESTÁ CORRETO
     private static final String BASE_URL = "https://frotasapp.rondonopolis.mt.gov.br";
-    private static final String CHANNEL_ID = "frota_nasa_channel";
-    private static final int NOTIFICATION_ID = 333;
+    private static final String CHANNEL_ID = "frota_odometro_channel";
+    private static final int NOTIFICATION_ID = 222;
 
     private FusedLocationProviderClient fusedLocationClient;
     private LocationCallback locationCallback;
@@ -52,20 +53,19 @@ public class LocationService extends Service {
     private PowerManager.WakeLock wakeLock;
     private KalmanLatLong kalmanFilter;
 
-    // --- VARIÁVEIS DE INTELIGÊNCIA ARTIFICIAL (IA LÓGICA) ---
-    private Location ancoraParado = null; // O ponto onde o carro "ancorou"
-    private long ultimoTempoEnvio = 0;
+    // --- VARIÁVEIS DE INTELIGÊNCIA ---
+    private Location ancoraParado = null;
+    private Location ultimaLocalizacaoCalculada = null; // Para somar KM metro a metro
+    private double distanciaAcumuladaMetros = 0.0; // O HODÔMETRO DO APP
 
-    // O BUFFER MÁGICO (Guarda a arrancada)
+    private long ultimoTempoEnvio = 0;
     private List<Location> bufferArrancada = new ArrayList<>();
 
-    // Configurações de Gatilho
+    // Configurações
     private static final float VELOCIDADE_MINIMA_MOVIMENTO = 4.0f; // km/h
     private static final float DISTANCIA_ROMPER_ANCORA = 15.0f; // metros
-
-    // Intervalos de Envio
-    private static final long INTERVALO_ENVIO_ANDANDO = 4000; // 4 segundos
-    private static final long INTERVALO_ENVIO_PARADO = 120000; // 2 minutos (Heartbeat)
+    private static final long INTERVALO_ENVIO_ANDANDO = 4000; // 4 seg
+    private static final long INTERVALO_ENVIO_PARADO = 120000; // 2 min
 
     @Override
     public void onCreate() {
@@ -77,7 +77,7 @@ public class LocationService extends Service {
 
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm != null) {
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SGF:NasaLock");
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SGF:OdometerLock");
             wakeLock.acquire(12 * 60 * 60 * 1000L);
         }
 
@@ -111,8 +111,7 @@ public class LocationService extends Service {
     private void iniciarGPS() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return;
 
-        // Pedimos atualização a cada 1 segundo (máximo do hardware)
-        // Isso alimenta o Filtro de Kalman e o Buffer
+        // Alta frequência (1s) para calcular a distância com precisão nas curvas
         LocationRequest locationRequest = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000)
                 .setMinUpdateIntervalMillis(500)
                 .setWaitForAccurateLocation(false)
@@ -124,26 +123,36 @@ public class LocationService extends Service {
     private void analisarLocalizacao(Location rawLoc) {
         if (placa.equals("INICIANDO...") || placa.equals("DESCONHECIDO")) return;
 
-        // 1. Descartar lixo de GPS (precisão ruim)
         if (rawLoc.getAccuracy() > 25) return;
 
-        // 2. Aplicar Matemática de Kalman (Suavização)
+        // Filtro Kalman
         kalmanFilter.Process(rawLoc.getLatitude(), rawLoc.getLongitude(), rawLoc.getAccuracy(), rawLoc.getTime());
 
-        // Objeto "Limpo"
         Location locAtual = new Location("Kalman");
         locAtual.setLatitude(kalmanFilter.get_lat());
         locAtual.setLongitude(kalmanFilter.get_lng());
         locAtual.setTime(System.currentTimeMillis());
-        locAtual.setSpeed(rawLoc.getSpeed()); // Mantém velocidade original para cálculo
+        locAtual.setSpeed(rawLoc.getSpeed());
 
         double velKmh = rawLoc.getSpeed() * 3.6;
         long agora = System.currentTimeMillis();
 
-        // --- LÓGICA CEREBRAL ---
+        // --- 1. CÁLCULO DO HODÔMETRO (IMPORTANTE) ---
+        // Calculamos a distância a cada 1 segundo, independente se vamos enviar ou não.
+        // Isso garante que curvas sejam somadas corretamente.
+        if (ultimaLocalizacaoCalculada != null) {
+            // Só soma se velocidade > 3km/h (Evita somar ruído parado)
+            if (velKmh > 3.0) {
+                float d = locAtual.distanceTo(ultimaLocalizacaoCalculada);
+                distanciaAcumuladaMetros += d;
+            }
+        }
+        ultimaLocalizacaoCalculada = locAtual;
+        // ---------------------------------------------
+
+        // --- 2. LÓGICA DE ENVIO (SMART THROTTLING) ---
 
         if (ancoraParado == null) {
-            // Primeiro ponto do sistema: envia e define âncora
             enviarImediatamente(locAtual, velKmh);
             ancoraParado = locAtual;
             return;
@@ -151,51 +160,31 @@ public class LocationService extends Service {
 
         float distanciaDaAncora = locAtual.distanceTo(ancoraParado);
 
-        // ESTADO 1: CARRO PARECE PARADO (Velocidade baixa e perto da âncora)
+        // ESTADO: PARADO
         if (velKmh < VELOCIDADE_MINIMA_MOVIMENTO && distanciaDaAncora < DISTANCIA_ROMPER_ANCORA) {
-
-            // Forçamos velocidade 0 visualmente
             locAtual.setSpeed(0);
-
-            // Adiciona ao Buffer (Memória de curto prazo)
-            // Se ele arrancar daqui a pouco, esses pontos serão úteis.
             bufferArrancada.add(locAtual);
-
-            // Limita o buffer para não estourar memória (guarda últimos 30 segundos)
             if (bufferArrancada.size() > 30) bufferArrancada.remove(0);
 
-            // Verifica Heartbeat (2 minutos)
             if (agora - ultimoTempoEnvio > INTERVALO_ENVIO_PARADO) {
-                // Confirmado que está parado há muito tempo.
-                // Limpa o buffer (era só ruído mesmo)
                 bufferArrancada.clear();
-
-                // Atualiza a âncora para a posição atual (recentraliza)
                 ancoraParado = locAtual;
                 enviarImediatamente(locAtual, 0.0);
             }
         }
-
-        // ESTADO 2: CARRO ARRANCOU (Rompeu âncora OU velocidade alta)
+        // ESTADO: ANDANDO
         else {
-
-            // AQUI ESTÁ A MÁGICA QUE VOCÊ PEDIU:
-            // Se tivermos coisas no buffer, significa que ele estava acelerando mas a gente tava segurando.
-            // Agora liberamos tudo de uma vez!
             if (!bufferArrancada.isEmpty()) {
-                Log.d("GPS_SGF", "🚀 Arrancada detectada! Enviando " + bufferArrancada.size() + " pontos do buffer.");
+                // Se tinha buffer, soma a distância deles também para não perder nada
+                // (Opcional, mas ajuda na precisão fina)
                 for (Location p : bufferArrancada) {
-                    // Envia com velocidade real calculada
                     enviarImediatamente(p, p.getSpeed() * 3.6);
                 }
                 bufferArrancada.clear();
             }
 
-            // Verifica o timer de 4 segundos para não flodar o banco
             if (agora - ultimoTempoEnvio > INTERVALO_ENVIO_ANDANDO) {
                 enviarImediatamente(locAtual, velKmh);
-
-                // Como ele está andando, a âncora "segue" ele para o próximo cálculo
                 ancoraParado = locAtual;
             }
         }
@@ -211,12 +200,16 @@ public class LocationService extends Service {
             json.put("latitude", loc.getLatitude());
             json.put("longitude", loc.getLongitude());
             json.put("velocidade", velKmh);
+
+            // --- AQUI ESTÁ A CORREÇÃO: ENVIAMOS O TOTAL ACUMULADO ---
+            json.put("distancia_percorrida", distanciaAcumuladaMetros);
+            // --------------------------------------------------------
+
         } catch (Exception e) {}
 
         JsonObjectRequest req = new JsonObjectRequest(Request.Method.POST, url, json, null,
                 error -> Log.e("Volley", "Erro: " + error.toString()));
 
-        // Timeout curto, sem retry (se perder 1 ponto a 80km/h não tem problema, vem outro em 4s)
         req.setRetryPolicy(new DefaultRetryPolicy(2000, 0, 1f));
         requestQueue.add(req);
     }
@@ -224,7 +217,7 @@ public class LocationService extends Service {
     private void startForegroundServiceCompat() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager manager = getSystemService(NotificationManager.class);
-            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "SGF Rastreamento Pro", NotificationManager.IMPORTANCE_LOW);
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "SGF Rastreamento", NotificationManager.IMPORTANCE_LOW);
             manager.createNotificationChannel(channel);
         }
 
