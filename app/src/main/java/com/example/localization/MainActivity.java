@@ -63,6 +63,29 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        Intent intent = getIntent();
+        if (Intent.ACTION_VIEW.equals(intent.getAction())) {
+            Uri data = intent.getData();
+            if (data != null) {
+                String placaLink = data.getQueryParameter("placa");
+                if (placaLink != null && !placaLink.isEmpty()) {
+                    this.placaAtual = placaLink;
+                    // Se já tiver permissão, inicia direto. Se não, o fluxo normal pede.
+                    // Aqui você pode salvar no SharedPreferences para garantir
+                    getSharedPreferences("DadosViagem", Context.MODE_PRIVATE)
+                            .edit().putString("placa_ativa", placaLink).apply();
+
+                    // Força o WebView a carregar já com a placa se não estiver em viagem
+                    if (!operacaoAtiva) {
+                        // Pequeno delay para garantir que a WebView carregou
+                        new Handler().postDelayed(() -> {
+                            webView.loadUrl(FORM_URL + "&placa=" + placaLink);
+                        }, 1000);
+                    }
+                }
+            }
+        }
+
         prefs = getSharedPreferences("DadosViagem", Context.MODE_PRIVATE);
 
         layoutFormulario = findViewById(R.id.layoutFormulario);
@@ -132,6 +155,13 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
+
+                // 1. Se for o link interno sgffrota://, IGNORA (não faz nada)
+                if (url.startsWith("sgffrota:")) {
+                    return true; // Retornar true significa "Android, eu cuido disso, não carregue a página"
+                }
+
+                // 2. Lógica original de sucesso
                 if (url.contains("/mobile-success")) {
                     String p = Uri.parse(url).getQueryParameter("placa");
                     if (p != null && !p.isEmpty()) {
@@ -140,6 +170,8 @@ public class MainActivity extends AppCompatActivity {
                     }
                     return true;
                 }
+
+                // 3. Permite carregar http/https normalmente
                 return false;
             }
         });
