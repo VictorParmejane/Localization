@@ -145,6 +145,7 @@ public class MainActivity extends AppCompatActivity {
         WebSettings ws = webView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
+        webView.addJavascriptInterface(new WebAppInterface(this), "Android");
 
         // --- LIMPEZA DE CACHE PARA GARANTIR REGRAS NOVAS ---
         ws.setCacheMode(WebSettings.LOAD_NO_CACHE);
@@ -153,15 +154,21 @@ public class MainActivity extends AppCompatActivity {
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                // Assim que o site carregar, o Android preenche os dados
+                injetarEstadoNoSite();
+            }
+
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
 
-                // 1. Se for o link interno sgffrota://, IGNORA (não faz nada)
+                // 2. Links internos (sgffrota://viagem...)
                 if (url.startsWith("sgffrota:")) {
-                    return true; // Retornar true significa "Android, eu cuido disso, não carregue a página"
+                    return true;
                 }
 
-                // 2. Lógica original de sucesso
+                // 3. Sucesso no registro
                 if (url.contains("/mobile-success")) {
                     String p = Uri.parse(url).getQueryParameter("placa");
                     if (p != null && !p.isEmpty()) {
@@ -171,7 +178,6 @@ public class MainActivity extends AppCompatActivity {
                     return true;
                 }
 
-                // 3. Permite carregar http/https normalmente
                 return false;
             }
         });
@@ -179,7 +185,24 @@ public class MainActivity extends AppCompatActivity {
         // Garante que o modo=app está sendo passado
         webView.loadUrl(FORM_URL);
     }
+    // Adicione este método na classe MainActivity
+    private void injetarEstadoNoSite() {
+        if (operacaoAtiva && !placaAtual.isEmpty()) {
+            // O Android manda esse comando JS para o site
+            String js = "javascript:(function() { " +
+                    "document.getElementById('motorista').value = '" + placaAtual + " (Em Viagem)';" +
+                    "document.getElementById('placa').value = '" + placaAtual + "';" +
+                    "aplicarBloqueioDeCampos();" +
+                    "const btn = document.getElementById('btnDesvincular');" +
+                    "if(btn) {" +
+                    "  btn.style.display = 'block';" +
+                    "  btn.innerHTML = '<i class=\"fas fa-unlink\"></i> SAIR DA VIAGEM';" +
+                    "}" +
+                    "})()";
 
+            webView.evaluateJavascript(js, null);
+        }
+    }
     private void verificarPermissoes() {
         List<String> perms = new ArrayList<>();
         perms.add(Manifest.permission.ACCESS_FINE_LOCATION);
@@ -283,4 +306,40 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(r, p, g);
         if (r == 101 && g.length > 0 && g[0] == PackageManager.PERMISSION_GRANTED) iniciarOperacaoGPS();
     }
+
+    // Adicione esta classe dentro da MainActivity
+    public class WebAppInterface {
+        Context mContext;
+
+        WebAppInterface(Context c) {
+            mContext = c;
+        }
+
+        // Mantive o nome 'desvincular' para bater com seu JavaScript atual.
+        @android.webkit.JavascriptInterface
+        public void desvincular() {
+            runOnUiThread(() -> {
+                // 1. Limpa SharedPreferences com COMMIT e remove tudo
+                SharedPreferences prefs = mContext.getSharedPreferences("DadosViagem", Context.MODE_PRIVATE);
+                prefs.edit().clear().commit();
+
+                // 2. Limpa Cookies e Cache do WebView (Isso mata os dados persistentes do site)
+                android.webkit.CookieManager.getInstance().removeAllCookies(null);
+                android.webkit.WebStorage.getInstance().deleteAllData();
+                webView.clearCache(true);
+                webView.clearFormData();
+
+                // 3. Reseta variáveis
+                operacaoAtiva = false;
+                placaAtual = "";
+
+                // 4. Recarrega para a tela de login
+                webView.loadUrl(FORM_URL); // Recarrega a URL original limpa
+
+                Toast.makeText(mContext, "Desconectado e limpo.", Toast.LENGTH_SHORT).show();
+            });
+        }
+    }
+
 }
+
